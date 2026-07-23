@@ -27,12 +27,16 @@ async def role(interaction: discord.Interaction, role: str):
     r = interaction.guild.get_role(int(role))
     if not r or "(" not in r.name:
         return await interaction.response.send_message("role not found")
+    icon = ""
+    if isinstance(r.display_icon, discord.PartialEmoji):
+        icon = f"{r.display_icon} "
     if r in interaction.user.roles:
         await interaction.user.remove_roles(r)
-        await interaction.response.send_message(f"removed **{r.name}**")
+        await interaction.response.send_message(f"removed {icon}**{r.name}**")
     else:
         await interaction.user.add_roles(r)
-        await interaction.response.send_message(f"added **{r.name}**")
+        await interaction.response.send_message(f"added {icon}**{r.name}**")
+
 
 @tree.command(name="roles", description="list all roles you can get")
 async def roles(interaction: discord.Interaction):
@@ -40,7 +44,12 @@ async def roles(interaction: discord.Interaction):
 
     lines = []
     for r in sorted(available, key=lambda r: r.name.lower()):
-        lines.append(f"{r.name}")
+        icon = ""
+
+        if isinstance(r.display_icon, discord.PartialEmoji):
+            icon = f"{r.display_icon} "
+
+        lines.append(f"{icon}{r.name}")
 
     embed = discord.Embed(
         title="available roles",
@@ -50,6 +59,7 @@ async def roles(interaction: discord.Interaction):
     embed.set_footer(text="use /role to add or remove roles")
 
     await interaction.response.send_message(embed=embed)
+
 
 @client.event
 async def on_ready():
