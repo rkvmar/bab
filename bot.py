@@ -18,7 +18,7 @@ def role_sort_key(role: discord.Role):
 
     value = match.group(1)
 
-    if not value.isdigit():
+    if value.isdigit():
         return (0, value.lower())
 
     return (1, int(value))
