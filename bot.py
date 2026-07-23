@@ -2,11 +2,26 @@ import discord
 from discord import app_commands
 import os
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+
+
+def role_sort_key(role: discord.Role):
+    match = re.search(r"\((.*?)\)", role.name)
+
+    if not match:
+        return (2, 0)
+
+    value = match.group(1)
+
+    if not value.isdigit():
+        return (0, value.lower())
+
+    return (1, int(value))
 
 
 async def role_autocomplete(
@@ -43,13 +58,13 @@ async def roles(interaction: discord.Interaction):
     available = [r for r in interaction.guild.roles if "(" in r.name]
 
     lines = []
-    for r in sorted(available, key=lambda r: r.name.lower()):
+    for r in sorted(available, key=role_sort_key):
         icon = ""
 
         if isinstance(r.display_icon, discord.PartialEmoji):
             icon = f"{r.display_icon} "
 
-        lines.append(f"{icon}{r.name}")
+        lines.append(f"{icon}{r.mention}")
 
     embed = discord.Embed(
         title="available roles",
