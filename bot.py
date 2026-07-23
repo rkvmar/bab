@@ -21,7 +21,7 @@ def role_sort_key(role: discord.Role):
     if value.isdigit():
         return (0, int(value))
 
-    return (1, value.lower)
+    return (1, value.lower())
 
 
 async def role_autocomplete(
