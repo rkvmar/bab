@@ -39,7 +39,10 @@ async def role_autocomplete(
 @app_commands.describe(role="the role to assign")
 @app_commands.autocomplete(role=role_autocomplete)
 async def role(interaction: discord.Interaction, role: str):
-    r = interaction.guild.get_role(int(role))
+    try:
+        r = interaction.guild.get_role(int(role))
+    except ValueError:
+        return await interaction.response.send_message("invalid role")
     if not r or "(" not in r.name:
         return await interaction.response.send_message("role not found")
     icon = ""
