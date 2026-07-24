@@ -3,6 +3,8 @@ from discord import app_commands
 import os
 from dotenv import load_dotenv
 import re
+import urllib.request
+import json
 
 load_dotenv()
 intents = discord.Intents.default()
@@ -76,6 +78,21 @@ async def roles(interaction: discord.Interaction):
     )
     embed.set_footer(text="use /role to add or remove roles")
 
+    await interaction.response.send_message(embed=embed)
+
+
+@tree.command(name="xkcd", description="get an xkcd comic")
+@app_commands.describe(number="comic number")
+async def xkcd(interaction: discord.Interaction, number: int | None = None):
+    url = f"https://xkcd.com/{number}/info.0.json" if number else "https://xkcd.com/info.0.json"
+    try:
+        with urllib.request.urlopen(url) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError:
+        return await interaction.response.send_message("comic not found", ephemeral=True)
+    embed = discord.Embed(title=f"xkcd #{data['num']}: {data['title']}", url=f"https://xkcd.com/{data['num']}/", color=discord.Color.blurple())
+    embed.set_image(url=data["img"])
+    embed.set_footer(text=data["alt"])
     await interaction.response.send_message(embed=embed)
 
 
