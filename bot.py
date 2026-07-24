@@ -42,9 +42,9 @@ async def role(interaction: discord.Interaction, role: str):
     try:
         r = interaction.guild.get_role(int(role))
     except ValueError:
-        return await interaction.response.send_message("invalid role")
+        return await interaction.response.send_message(f"invalid role: {r}")
     if not r or "(" not in r.name:
-        return await interaction.response.send_message("role not found")
+        return await interaction.response.send_message(f"invalid role: {r.name}")
     icon = ""
     if isinstance(r.display_icon, discord.PartialEmoji):
         icon = f"{r.display_icon} "
