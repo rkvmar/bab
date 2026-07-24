@@ -42,7 +42,7 @@ async def role(interaction: discord.Interaction, role: str):
     try:
         r = interaction.guild.get_role(int(role))
     except ValueError:
-        return await interaction.response.send_message(f"invalid role: {r}")
+        return await interaction.response.send_message(f"invalid role: {role}")
     if not r or "(" not in r.name:
         return await interaction.response.send_message(f"invalid role: {r.name}")
     icon = ""
