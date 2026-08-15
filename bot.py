@@ -187,9 +187,6 @@ async def xkcd(interaction: discord.Interaction, number: str | None = None):
 CODE = os.getenv("CODE")
 revealed_index = None
 
-
-CODE = os.getenv("CODE")
-
 rotation = 0
 
 
@@ -533,7 +530,7 @@ async def code(interaction: discord.Interaction):
         )
 
     masked = get_masked_code(interaction.user.id)
-
+    print(f"WHENER TENER HUNT ALERT: {interaction.user} got code: {masked}")
     await interaction.response.send_message(
         masked,
         ephemeral=True
