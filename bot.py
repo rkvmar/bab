@@ -309,12 +309,17 @@ async def team(interaction: discord.Interaction, team:int):
             "Something went wrong while getting that match",
             ephemeral=True
         )
+@tree.command(name="larp", description="pester someone about larping")
+async def larp(interaction: discord.Interaction):
+    return await interaction.response.send_message(
+        "**Rules update: STOP LARPING**"
+    )
 
 @tree.command(name="code", description="?????")
 async def code(interaction: discord.Interaction):
     if not CODE:
         return await interaction.response.send_message(
-            "Code isn't configured.",
+            "Code isn't configured",
             ephemeral=True
         )
 
