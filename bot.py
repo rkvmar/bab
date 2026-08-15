@@ -466,7 +466,6 @@ async def team(interaction: discord.Interaction, team:int):
         response.raise_for_status()
 
         data = response.json()
-        print(data)
 
         embed = discord.Embed(
             title=f"Team {data['team_number']}: {data['nickname']}",
