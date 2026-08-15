@@ -33,7 +33,7 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="/match <event> <match>",
+        name="/match <event> <match> <type (optional)>",
         value="get match details from The Blue Alliance",
         inline=False,
     )
