@@ -191,9 +191,13 @@ async def match(interaction: discord.Interaction, event: str, match: str):
         response.raise_for_status()
 
         data = response.json()
+        eventName = requests.get(
+            f"{TBA_URL}/event/{event}",
+            timeout=10,
+            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+        ).json()["name"]
 
         url = None
-
         if data.get("videos"):
             url = f"https://www.youtube.com/watch?v={data['videos'][0]['key']}"
 
@@ -229,8 +233,12 @@ async def match(interaction: discord.Interaction, event: str, match: str):
             "qm": "Qualification",
             "sf": "Playoffs",
             "f": "Final"}
+        num = data['match_number']
+        if(data['comp_level'] == 'sf'):
+            num = data['set_number']
+
         embed = discord.Embed(
-            title=f"{event.upper()} {levels.get(data['comp_level'])} {data['match_number']}",
+            title=f"{eventName} {levels.get(data['comp_level'])} {num}",
             description=description,
             color=color
         )
