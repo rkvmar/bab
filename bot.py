@@ -7,11 +7,14 @@ from dotenv import load_dotenv
 import re
 import urllib.request
 import json
+import requests
+
 
 load_dotenv()
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+TBA_URL = "https://www.thebluealliance.com/api/v3"
 
 
 def role_sort_key(role: discord.Role):
@@ -146,6 +149,166 @@ async def rotate_code():
 
     rotation += 1
 
+@tree.command(name="match", description="get match details")
+@app_commands.describe(event="the event to watch", match="the match to watch")
+async def match(interaction: discord.Interaction, event: str, match: str):
+    try:
+        match = match.lower()
+
+        if match.isdigit():
+            match = f"qm{match}"
+
+        response = requests.get(
+            f"{TBA_URL}/match/{event}_{match}",
+            timeout=10,
+            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        url = None
+
+        if data.get("videos"):
+            url = f"https://www.youtube.com/watch?v={data['videos'][0]['key']}"
+
+        red_teams = ", ".join(
+            team.removeprefix("frc")
+            for team in data["alliances"]["red"]["team_keys"]
+        )
+
+        blue_teams = ", ".join(
+            team.removeprefix("frc")
+            for team in data["alliances"]["blue"]["team_keys"]
+        )
+
+        description = (
+            f"🟥 **{red_teams}**\n"
+            f"**{data['alliances']['red']['score']} points** "
+            f"({data['score_breakdown']['red']['rp']} rp)\n"
+            f"🟦 **{blue_teams}**\n"
+            f"**{data['alliances']['blue']['score']} points** "
+            f"({data['score_breakdown']['blue']['rp']} rp)"
+        )
+
+        if url:
+            description += f"\n\n[Watch Match]({url})"
+
+        if data["winning_alliance"] == "red":
+            color = discord.Color.red()
+        elif data["winning_alliance"] == "blue":
+            color = discord.Color.blue()
+        else:
+            color = discord.Color.greyple()
+
+        embed = discord.Embed(
+            title=f"{event.upper()} {data['comp_level'].upper()} {data['match_number']}",
+            description=description,
+            color=color
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    except requests.exceptions.Timeout:
+        await interaction.response.send_message(
+            "The request to TBA timed out",
+            ephemeral=True
+        )
+
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 404:
+            message = f"Match `{event}_{match}` was not found"
+        else:
+            message = f"The TBA API returned an error (`{response.status_code}`)"
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True
+        )
+
+    except requests.exceptions.RequestException:
+        await interaction.response.send_message(
+            "Could not connect to TBA",
+            ephemeral=True
+        )
+
+    except (KeyError, TypeError, ValueError):
+        await interaction.response.send_message(
+            "The match data from TBA was invalid or incomplete",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        print(f"Unexpected error in /match: {e}")
+
+        await interaction.response.send_message(
+            "Something went wrong while getting that match",
+            ephemeral=True
+        )
+
+@tree.command(name="team", description="get team details")
+@app_commands.describe(team="team number")
+async def team(interaction: discord.Interaction, team:int):
+    try:
+        response = requests.get(
+            f"{TBA_URL}/team/frc{team}",
+            timeout=10,
+            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+        print(data)
+
+        embed = discord.Embed(
+            title=f"Team {data['team_number']}: {data['nickname']}",
+            description=data.get("name", ""),
+            color=discord.Color.blurple()
+        )
+
+        embed.add_field(name="Location", value=data.get("city", "Unknown"), inline=True)
+        embed.add_field(name="Website", value=data.get("website", "Unknown"), inline=True)
+
+        await interaction.response.send_message(embed=embed)
+
+    except requests.exceptions.Timeout:
+        await interaction.response.send_message(
+            "The request to TBA timed out",
+            ephemeral=True
+        )
+
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 404:
+            message = f"Match `{event}_{match}` was not found"
+        else:
+            message = f"The TBA API returned an error (`{response.status_code}`)"
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True
+        )
+
+    except requests.exceptions.RequestException:
+        await interaction.response.send_message(
+            "Could not connect to TBA",
+            ephemeral=True
+        )
+
+    except (KeyError, TypeError, ValueError):
+        await interaction.response.send_message(
+            "The match data from TBA was invalid or incomplete",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        print(f"Unexpected error in /match: {e}")
+
+        await interaction.response.send_message(
+            "Something went wrong while getting that match",
+            ephemeral=True
+        )
 
 @tree.command(name="code", description="?????")
 async def code(interaction: discord.Interaction):
