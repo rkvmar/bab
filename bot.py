@@ -206,7 +206,7 @@ def get_masked_code(user_id: int):
 async def rotate_code():
     global rotation
 
-    rotation += 1
+    rotation += random.randint(1,6)
 
 events_cache = {
     "timestamp": 0,
