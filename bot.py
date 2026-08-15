@@ -187,6 +187,7 @@ async def match(interaction: discord.Interaction, event: str, match: str):
             f"🟥 **{red_teams}**\n"
             f"**{data['alliances']['red']['score']} points** "
             f"({data['score_breakdown']['red']['rp']} rp)\n"
+            f"\n"
             f"🟦 **{blue_teams}**\n"
             f"**{data['alliances']['blue']['score']} points** "
             f"({data['score_breakdown']['blue']['rp']} rp)"
@@ -194,16 +195,18 @@ async def match(interaction: discord.Interaction, event: str, match: str):
 
         if url:
             description += f"\n\n[Watch Match]({url})"
-
         if data["winning_alliance"] == "red":
             color = discord.Color.red()
         elif data["winning_alliance"] == "blue":
             color = discord.Color.blue()
         else:
             color = discord.Color.greyple()
-
+        levels = {
+            "qm": "Qualification",
+            "sf": "Playoffs",
+            "f": "Final"}
         embed = discord.Embed(
-            title=f"{event.upper()} {data['comp_level'].upper()} {data['match_number']}",
+            title=f"{event.upper()} {levels.get(data['comp_level'])} {data['match_number']}",
             description=description,
             color=color
         )
