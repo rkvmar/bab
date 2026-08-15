@@ -8,7 +8,7 @@ import re
 import urllib.request
 import json
 import requests
-
+import time
 
 load_dotenv()
 intents = discord.Intents.default()
@@ -20,7 +20,6 @@ TBA_URL = "https://www.thebluealliance.com/api/v3"
 async def help(interaction: discord.Interaction):
     embed = discord.Embed(
         title="bot commands",
-        description="here are the commands you can use with this bot",
         color=discord.Color.blurple(),
     )
     embed.add_field(
@@ -212,17 +211,135 @@ async def rotate_code():
 
     rotation += 1
 
-@tree.command(name="match", description="get match details")
-@app_commands.describe(event="the event to watch", match="the match to watch")
-async def match(interaction: discord.Interaction, event: str, match: str):
+events_cache = {
+    "timestamp": 0,
+    "events": []
+}
+
+EVENT_CACHE_SECONDS = 60 * 60
+MATCH_TYPES = [
+    app_commands.Choice(name="Qualification", value="qm"),
+    app_commands.Choice(name="Playoffs", value="sf"),
+    app_commands.Choice(name="Finals", value="f"),
+]
+
+def get_this_year_events():
+    now = time.time()
+
+    if (
+        events_cache["events"]
+        and now - events_cache["timestamp"] < EVENT_CACHE_SECONDS
+    ):
+        return events_cache["events"]
+
+    year = discord.utils.utcnow().year
+
+    response = requests.get(
+        f"{TBA_URL}/events/{year}",
+        timeout=10,
+        headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+    )
+
+    response.raise_for_status()
+
+    events = response.json()
+
+    events_cache["events"] = events
+    events_cache["timestamp"] = now
+
+    return events
+
+
+async def event_autocomplete(
+    interaction: discord.Interaction,
+    current: str
+):
     try:
-        match = match.lower()
+        events = get_this_year_events()
+
+        current = current.lower().strip()
+
+        choices = []
+
+        for event in events:
+            name = event.get("name", "")
+            key = event.get("key", "")
+
+            if (
+                current in name.lower()
+                or current in key.lower()
+            ):
+                display_name = f"{name} ({key})"
+
+                display_name = display_name[:100]
+
+                choices.append(
+                    app_commands.Choice(
+                        name=display_name,
+                        value=key
+                    )
+                )
+
+        return choices[:25]
+
+    except Exception as e:
+        print(f"Autocomplete error: {e}")
+        return []
+
+
+def resolve_event(event_input: str):
+    event_input = event_input.strip()
+
+    events = get_this_year_events()
+
+    for event in events:
+        if event.get("key", "").lower() == event_input.lower():
+            return event["key"], event["name"]
+
+    for event in events:
+        if event.get("name", "").lower() == event_input.lower():
+            return event["key"], event["name"]
+
+    matches = [
+        event for event in events
+        if event_input.lower() in event.get("name", "").lower()
+    ]
+
+    if len(matches) == 1:
+        return matches[0]["key"], matches[0]["name"]
+
+    raise ValueError("Event was not found")
+
+
+@tree.command(name="match", description="get match details")
+@app_commands.describe(
+    event="the event to watch",
+    match="the match to watch",
+    type="the type of match"
+)
+@app_commands.choices(type=MATCH_TYPES)
+@app_commands.autocomplete(event=event_autocomplete)
+async def match(
+    interaction: discord.Interaction,
+    event: str,
+    match: str,
+    type: str = "qm"
+):
+    try:
+        event_key, event_name = resolve_event(event)
+
+        match = match.lower().strip()
 
         if match.isdigit():
-            match = f"qm{match}"
+            if type == "f":
+                match = f"f1m{match}"
+            elif type == "sf":
+                match = f"sf{match}m1"
+            else:
+                match = f"{type}{match}"
 
         response = requests.get(
-            f"{TBA_URL}/match/{event}_{match}",
+            f"{TBA_URL}/match/{event_key}_{match}",
             timeout=10,
             headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
         )
@@ -230,15 +347,14 @@ async def match(interaction: discord.Interaction, event: str, match: str):
         response.raise_for_status()
 
         data = response.json()
-        eventName = requests.get(
-            f"{TBA_URL}/event/{event}",
-            timeout=10,
-            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
-        ).json()["name"]
 
         url = None
+
         if data.get("videos"):
-            url = f"https://www.youtube.com/watch?v={data['videos'][0]['key']}"
+            video = data["videos"][0]
+
+            if video.get("type") == "youtube":
+                url = f"https://www.youtube.com/watch?v={video['key']}"
 
         red_teams = ", ".join(
             team.removeprefix("frc")
@@ -262,39 +378,58 @@ async def match(interaction: discord.Interaction, event: str, match: str):
 
         if url:
             description += f"\n\n[Watch Match]({url})"
+
         if data["winning_alliance"] == "red":
             color = discord.Color.red()
         elif data["winning_alliance"] == "blue":
             color = discord.Color.blue()
         else:
             color = discord.Color.greyple()
+
         levels = {
             "qm": "Qualification",
             "sf": "Playoffs",
-            "f": "Final"}
-        num = data['match_number']
-        if(data['comp_level'] == 'sf'):
-            num = data['set_number']
+            "f": "Final"
+        }
+
+        num = data["match_number"]
+
+        if data["comp_level"] == "sf":
+            num = data["set_number"]
+
+        level = levels.get(
+            data["comp_level"],
+            data["comp_level"].upper()
+        )
 
         embed = discord.Embed(
-            title=f"{eventName} {levels.get(data['comp_level'])} {num}",
+            title=f"{event_name} {level} {num}",
             description=description,
             color=color
         )
 
         await interaction.response.send_message(embed=embed)
 
+    except ValueError:
+        await interaction.response.send_message(
+            f"Event `{event}` was not found.",
+            ephemeral=True
+        )
+
     except requests.exceptions.Timeout:
         await interaction.response.send_message(
-            "The request to TBA timed out",
+            "The request to TBA timed out.",
             ephemeral=True
         )
 
     except requests.exceptions.HTTPError as e:
         if response.status_code == 404:
-            message = f"Match `{event}_{match}` was not found"
+            message = f"Match `{event}_{match}` was not found."
         else:
-            message = f"The TBA API returned an error (`{response.status_code}`)"
+            message = (
+                f"The TBA API returned an error "
+                f"(`{response.status_code}`)."
+            )
 
         await interaction.response.send_message(
             message,
@@ -303,13 +438,13 @@ async def match(interaction: discord.Interaction, event: str, match: str):
 
     except requests.exceptions.RequestException:
         await interaction.response.send_message(
-            "Could not connect to TBA",
+            "Could not connect to TBA.",
             ephemeral=True
         )
 
     except (KeyError, TypeError, ValueError):
         await interaction.response.send_message(
-            "The match data from TBA was invalid or incomplete",
+            "The match data from TBA was invalid or incomplete.",
             ephemeral=True
         )
 
@@ -317,7 +452,7 @@ async def match(interaction: discord.Interaction, event: str, match: str):
         print(f"Unexpected error in /match: {e}")
 
         await interaction.response.send_message(
-            "Something went wrong while getting that match",
+            "Something went wrong while getting that match.",
             ephemeral=True
         )
 
