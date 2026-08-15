@@ -16,6 +16,45 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 TBA_URL = "https://www.thebluealliance.com/api/v3"
 
+@tree.command(name="help", description="how do i use bot")
+async def help(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="bot commands",
+        description="here are the commands you can use with this bot",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="/role <role>",
+        value="add or remove a role from yourself",
+        inline=False,
+    )
+    embed.add_field(
+        name="/roles",
+        value="list all roles you can get",
+        inline=False,
+    )
+    embed.add_field(
+        name="/match <event> <match>",
+        value="get match details from The Blue Alliance",
+        inline=False,
+    )
+    embed.add_field(
+        name="/team <team number>",
+        value="get team details from The Blue Alliance",
+        inline=False,
+    )
+    embed.add_field(
+        name="/xkcd <number|random>",
+        value="get an xkcd comic",
+        inline=False,
+    )
+    embed.add_field(
+        name="/code",
+        value="?????",
+        inline=False,
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 def role_sort_key(role: discord.Role):
     match = re.search(r"\((.*?)\)", role.name)
