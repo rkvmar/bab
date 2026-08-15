@@ -109,17 +109,41 @@ async def roles(interaction: discord.Interaction):
 
 
 @tree.command(name="xkcd", description="get an xkcd comic")
-@app_commands.describe(number="comic number")
-async def xkcd(interaction: discord.Interaction, number: int | None = None):
-    url = f"https://xkcd.com/{number}/info.0.json" if number else "https://xkcd.com/info.0.json"
+@app_commands.describe(number="comic number or 'random'")
+async def xkcd(interaction: discord.Interaction, number: str | None = None):
     try:
+        if number and number.lower() == "random":
+            with urllib.request.urlopen("https://xkcd.com/info.0.json") as resp:
+                latest = json.loads(resp.read())
+
+            number = random.randint(1, latest["num"])
+
+        url = (
+            f"https://xkcd.com/{number}/info.0.json"
+            if number
+            else "https://xkcd.com/info.0.json"
+        )
+
         with urllib.request.urlopen(url) as resp:
             data = json.loads(resp.read())
+
     except urllib.error.HTTPError:
-        return await interaction.response.send_message("comic not found", ephemeral=True)
-    embed = discord.Embed(title=f"xkcd #{data['num']}: {data['title']}", url=f"https://xkcd.com/{data['num']}/", color=discord.Color.blurple())
+        return await interaction.response.send_message(
+            "comic not found", ephemeral=True
+        )
+    except ValueError:
+        return await interaction.response.send_message(
+            "please enter a comic number or `random`", ephemeral=True
+        )
+
+    embed = discord.Embed(
+        title=f"xkcd #{data['num']}: {data['title']}",
+        url=f"https://xkcd.com/{data['num']}/",
+        color=discord.Color.blurple()
+    )
     embed.set_image(url=data["img"])
     embed.set_footer(text=data["alt"])
+
     await interaction.response.send_message(embed=embed)
 
 CODE = os.getenv("CODE")
