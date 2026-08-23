@@ -9,6 +9,7 @@ import urllib.request
 import json
 import requests
 import time
+import csv
 
 load_dotenv()
 intents = discord.Intents.default()
@@ -105,12 +106,12 @@ async def role(interaction: discord.Interaction, role: str):
             r = interaction.guild.get_role(int(role))
         except ValueError:
             return await interaction.response.send_message(
-                f"invalid role: {role}"
+                f"invalid role: {role}", ephemeral=True
             )
 
         if not r or "(" not in r.name:
             return await interaction.response.send_message(
-                f"invalid role: {r.name if r else role}"
+                f"invalid role: {r.name if r else role}", ephemeral=True
             )
         icon = ""
         if isinstance(r.display_icon, discord.PartialEmoji):
@@ -533,6 +534,116 @@ async def code(interaction: discord.Interaction):
     await interaction.response.send_message(
         masked,
         ephemeral=True
+    )
+
+import csv
+
+@tree.command(
+    name="scrape",
+    description="Scrape messages between two message IDs"
+)
+@app_commands.describe(
+    start_id="The ID of the first message",
+    end_id="The ID of the last message",
+    channel_id="The ID of the channel to scrape"
+)
+async def scrape(
+    interaction: discord.Interaction,
+    start_id: str,
+    end_id: str,
+    channel_id: str
+):
+    await interaction.response.defer()
+
+    try:
+        start_id = int(start_id)
+        end_id = int(end_id)
+        channel_id = int(channel_id)
+    except ValueError:
+        return await interaction.followup.send(
+            "One or more IDs are invalid."
+        )
+
+    channel = interaction.client.get_channel(channel_id)
+
+    if channel is None:
+        return await interaction.followup.send(
+            "Channel not found."
+        )
+
+    if not isinstance(channel, discord.TextChannel):
+        return await interaction.followup.send(
+            "That isn't a text channel."
+        )
+
+    try:
+        start_message = await channel.fetch_message(start_id)
+        end_message = await channel.fetch_message(end_id)
+    except discord.NotFound:
+        return await interaction.followup.send(
+            "Couldn't find one of the messages."
+        )
+    except discord.Forbidden:
+        return await interaction.followup.send(
+            "I don't have permission to read that channel."
+        )
+
+    if start_message.id > end_message.id:
+        start_message, end_message = end_message, start_message
+
+    filename = "messages.csv"
+    count = 0
+
+    with open(filename, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+
+        writer.writerow([
+            "timestamp",
+            "author_id",
+            "author",
+            "content",
+            "message_id"
+        ])
+
+        writer.writerow([
+            start_message.created_at.isoformat(),
+            start_message.author.id,
+            str(start_message.author),
+            start_message.content,
+            start_message.id
+        ])
+        count += 1
+
+        async for message in channel.history(
+            limit=None,
+            after=start_message,
+            before=end_message,
+            oldest_first=True
+        ):
+            writer.writerow([
+                message.created_at.isoformat(),
+                message.author.id,
+                str(message.author),
+                message.content,
+                message.id
+            ])
+
+            count += 1
+
+        writer.writerow([
+            end_message.created_at.isoformat(),
+            end_message.author.id,
+            str(end_message.author),
+            end_message.content,
+            end_message.id
+        ])
+        count += 1
+
+    print(f"Scraped {count} messages")
+
+    await interaction.followup.send(
+        f"Scraped **{count} messages** from <#{channel_id}>.",
+        file=discord.File(filename)
     )
 
 @client.event
