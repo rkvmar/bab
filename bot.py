@@ -540,12 +540,12 @@ import csv
 
 @tree.command(
     name="scrape",
-    description="Scrape messages between two message IDs"
+    description="scrape messages"
 )
 @app_commands.describe(
-    start_id="The ID of the first message",
-    end_id="The ID of the last message",
-    channel_id="The ID of the channel to scrape"
+    start_id="ID of first message",
+    end_id="ID of last message",
+    channel_id="ID of channel to scrape"
 )
 async def scrape(
     interaction: discord.Interaction,
@@ -561,19 +561,19 @@ async def scrape(
         channel_id = int(channel_id)
     except ValueError:
         return await interaction.followup.send(
-            "One or more IDs are invalid."
+            "one or more IDs are invalid"
         )
 
     channel = interaction.client.get_channel(channel_id)
 
     if channel is None:
         return await interaction.followup.send(
-            "Channel not found."
+            "channel not found."
         )
 
     if not isinstance(channel, discord.TextChannel):
         return await interaction.followup.send(
-            "That isn't a text channel."
+            "not a text channel"
         )
 
     try:
@@ -581,11 +581,11 @@ async def scrape(
         end_message = await channel.fetch_message(end_id)
     except discord.NotFound:
         return await interaction.followup.send(
-            "Couldn't find one of the messages."
+            "couldnt find one of the messages"
         )
     except discord.Forbidden:
         return await interaction.followup.send(
-            "I don't have permission to read that channel."
+            "check channel permissions"
         )
 
     if start_message.id > end_message.id:
@@ -639,10 +639,10 @@ async def scrape(
         ])
         count += 1
 
-    print(f"Scraped {count} messages")
+    print(f"scraped {count} messages")
 
     await interaction.followup.send(
-        f"Scraped **{count} messages** from <#{channel_id}>.",
+        f"scraped **{count} messages** from <#{channel_id}>.",
         file=discord.File(filename)
     )
 
