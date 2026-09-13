@@ -162,7 +162,7 @@ ROLE_REQUIREMENTS = {
 @tree.command(name="role", description="get an opt-in role")
 @app_commands.describe(role="the role to assign")
 @app_commands.choices(
-    role=[app_commands.Choice(name=name, value=name) for name in MISC_ROLE_REQUIREMENTS]
+    role=[app_commands.Choice(name=name, value=name) for name in ROLE_REQUIREMENTS]
 )
 async def role(interaction: discord.Interaction, role: str):
     required_name = ROLE_REQUIREMENTS[role]
