@@ -17,6 +17,7 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 TBA_URL = "https://www.thebluealliance.com/api/v3"
 
+
 @tree.command(name="help", description="how do i use bot")
 async def help(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -24,22 +25,27 @@ async def help(interaction: discord.Interaction):
         color=discord.Color.blurple(),
     )
     embed.add_field(
+        name="/team <role>",
+        value="add or remove a team role from yourself",
+        inline=False,
+    )
+    embed.add_field(
         name="/role <role>",
-        value="add or remove a role from yourself",
+        value="get a misc role",
         inline=False,
     )
     embed.add_field(
-        name="/roles",
-        value="list all roles you can get",
+        name="/teams",
+        value="list all team roles you can get",
         inline=False,
     )
     embed.add_field(
-        name="/match <event> <match> <type (optional)>",
+        name="/getmatch <event> <match> <type (optional)>",
         value="get match details from The Blue Alliance",
         inline=False,
     )
     embed.add_field(
-        name="/team <team number>",
+        name="/getteam <team number>",
         value="get team details from The Blue Alliance",
         inline=False,
     )
@@ -55,6 +61,7 @@ async def help(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(embed=embed)
+
 
 def role_sort_key(role: discord.Role):
     match = re.search(r"\((.*?)\)", role.name)
@@ -81,26 +88,26 @@ async def role_autocomplete(
     ][:25]
 
 
-@tree.command(name="role", description="get a team role")
+@tree.command(name="team", description="get a team role")
 @app_commands.describe(role="the role to assign")
 @app_commands.autocomplete(role=role_autocomplete)
-async def role(interaction: discord.Interaction, role: str):
+async def team_role(interaction: discord.Interaction, role: str):
     if role.lower() == os.getenv("SECRET"):
-            r = discord.utils.get(
-                interaction.guild.roles,
-                name="puzzle gang"
-            )
+        r = discord.utils.get(interaction.guild.roles, name="puzzle gang")
 
-            if not r:
-                return await interaction.response.send_message(
-                    "role not found"
-                )
-            if r in interaction.user.roles:
-                await interaction.user.remove_roles(r)
-                await interaction.response.send_message(f"removed **{r.name}**", ephemeral=True)
-            else:
-                await interaction.user.add_roles(r)
-                await interaction.response.send_message(f"congradulatis! you found the **{r.name}** role. please don't spoil the solution for anyone else!", ephemeral=True)
+        if not r:
+            return await interaction.response.send_message("role not found")
+        if r in interaction.user.roles:
+            await interaction.user.remove_roles(r)
+            await interaction.response.send_message(
+                f"removed **{r.name}**", ephemeral=True
+            )
+        else:
+            await interaction.user.add_roles(r)
+            await interaction.response.send_message(
+                f"congradulatis! you found the **{r.name}** role. please don't spoil the solution for anyone else!",
+                ephemeral=True,
+            )
     else:
         try:
             r = interaction.guild.get_role(int(role))
@@ -124,7 +131,7 @@ async def role(interaction: discord.Interaction, role: str):
             await interaction.response.send_message(f"added {icon}**{r.name}**")
 
 
-@tree.command(name="roles", description="list all roles you can get")
+@tree.command(name="teams", description="list all roles you can get")
 async def roles(interaction: discord.Interaction):
     available = [r for r in interaction.guild.roles if "(" in r.name]
 
@@ -142,9 +149,45 @@ async def roles(interaction: discord.Interaction):
         description="\n".join(lines),
         color=discord.Color.blurple(),
     )
-    embed.set_footer(text="use /role to add or remove roles")
+    embed.set_footer(text="use /team to add or remove roles")
 
     await interaction.response.send_message(embed=embed)
+
+
+ROLE_REQUIREMENTS = {
+    "serious": "level 17",
+}
+
+
+@tree.command(name="role", description="get an opt-in role")
+@app_commands.describe(role="the role to assign")
+@app_commands.choices(
+    role=[app_commands.Choice(name=name, value=name) for name in MISC_ROLE_REQUIREMENTS]
+)
+async def role(interaction: discord.Interaction, role: str):
+    required_name = ROLE_REQUIREMENTS[role]
+
+    required = discord.utils.get(
+        interaction.guild.roles,
+        name=required_name,
+    )
+    r = discord.utils.get(interaction.guild.roles, name=role)
+
+    if not required or not r:
+        return await interaction.response.send_message("role not found", ephemeral=True)
+
+    if required not in interaction.user.roles:
+        return await interaction.response.send_message(
+            f"you need to be **{required.name}** to get **{r.name}**",
+            ephemeral=True,
+        )
+
+    if r in interaction.user.roles:
+        await interaction.user.remove_roles(r)
+        await interaction.response.send_message(f"removed **{r.name}**", ephemeral=True)
+    else:
+        await interaction.user.add_roles(r)
+        await interaction.response.send_message(f"added **{r.name}**", ephemeral=True)
 
 
 @tree.command(name="xkcd", description="get an xkcd comic")
@@ -178,12 +221,13 @@ async def xkcd(interaction: discord.Interaction, number: str | None = None):
     embed = discord.Embed(
         title=f"xkcd #{data['num']}: {data['title']}",
         url=f"https://xkcd.com/{data['num']}/",
-        color=discord.Color.blurple()
+        color=discord.Color.blurple(),
     )
     embed.set_image(url=data["img"])
     embed.set_footer(text=data["alt"])
 
     await interaction.response.send_message(embed=embed)
+
 
 CODE = os.getenv("CODE")
 revealed_index = None
@@ -197,22 +241,17 @@ def get_masked_code(user_id: int):
 
     index = (user_id + rotation) % len(CODE)
 
-    return "".join(
-        char if i == index else "?"
-        for i, char in enumerate(CODE)
-    )
+    return "".join(char if i == index else "?" for i, char in enumerate(CODE))
 
 
 @tasks.loop(minutes=1)
 async def rotate_code():
     global rotation
 
-    rotation += random.randint(2,4)
+    rotation += random.randint(2, 4)
 
-events_cache = {
-    "timestamp": 0,
-    "events": []
-}
+
+events_cache = {"timestamp": 0, "events": []}
 
 EVENT_CACHE_SECONDS = 60 * 60
 MATCH_TYPES = [
@@ -221,13 +260,11 @@ MATCH_TYPES = [
     app_commands.Choice(name="Finals", value="f"),
 ]
 
+
 def get_this_year_events():
     now = time.time()
 
-    if (
-        events_cache["events"]
-        and now - events_cache["timestamp"] < EVENT_CACHE_SECONDS
-    ):
+    if events_cache["events"] and now - events_cache["timestamp"] < EVENT_CACHE_SECONDS:
         return events_cache["events"]
 
     year = discord.utils.utcnow().year
@@ -235,7 +272,7 @@ def get_this_year_events():
     response = requests.get(
         f"{TBA_URL}/events/{year}",
         timeout=10,
-        headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+        headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")},
     )
 
     response.raise_for_status()
@@ -248,10 +285,7 @@ def get_this_year_events():
     return events
 
 
-async def event_autocomplete(
-    interaction: discord.Interaction,
-    current: str
-):
+async def event_autocomplete(interaction: discord.Interaction, current: str):
     try:
         events = get_this_year_events()
 
@@ -263,20 +297,12 @@ async def event_autocomplete(
             name = event.get("name", "")
             key = event.get("key", "")
 
-            if (
-                current in name.lower()
-                or current in key.lower()
-            ):
+            if current in name.lower() or current in key.lower():
                 display_name = f"{name} ({key})"
 
                 display_name = display_name[:100]
 
-                choices.append(
-                    app_commands.Choice(
-                        name=display_name,
-                        value=key
-                    )
-                )
+                choices.append(app_commands.Choice(name=display_name, value=key))
 
         return choices[:25]
 
@@ -299,7 +325,8 @@ def resolve_event(event_input: str):
             return event["key"], event["name"]
 
     matches = [
-        event for event in events
+        event
+        for event in events
         if event_input.lower() in event.get("name", "").lower()
     ]
 
@@ -311,17 +338,12 @@ def resolve_event(event_input: str):
 
 @tree.command(name="match", description="get match details")
 @app_commands.describe(
-    event="the event to watch",
-    match="the match to watch",
-    type="the type of match"
+    event="the event to watch", match="the match to watch", type="the type of match"
 )
 @app_commands.choices(type=MATCH_TYPES)
 @app_commands.autocomplete(event=event_autocomplete)
 async def match(
-    interaction: discord.Interaction,
-    event: str,
-    match: str,
-    type: str = "qm"
+    interaction: discord.Interaction, event: str, match: str, type: str = "qm"
 ):
     try:
         event_key, event_name = resolve_event(event)
@@ -339,7 +361,7 @@ async def match(
         response = requests.get(
             f"{TBA_URL}/match/{event_key}_{match}",
             timeout=10,
-            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")},
         )
 
         response.raise_for_status()
@@ -355,13 +377,11 @@ async def match(
                 url = f"https://www.youtube.com/watch?v={video['key']}"
 
         red_teams = ", ".join(
-            team.removeprefix("frc")
-            for team in data["alliances"]["red"]["team_keys"]
+            team.removeprefix("frc") for team in data["alliances"]["red"]["team_keys"]
         )
 
         blue_teams = ", ".join(
-            team.removeprefix("frc")
-            for team in data["alliances"]["blue"]["team_keys"]
+            team.removeprefix("frc") for team in data["alliances"]["blue"]["team_keys"]
         )
 
         description = (
@@ -384,84 +404,65 @@ async def match(
         else:
             color = discord.Color.greyple()
 
-        levels = {
-            "qm": "Qualification",
-            "sf": "Playoffs",
-            "f": "Final"
-        }
+        levels = {"qm": "Qualification", "sf": "Playoffs", "f": "Final"}
 
         num = data["match_number"]
 
         if data["comp_level"] == "sf":
             num = data["set_number"]
 
-        level = levels.get(
-            data["comp_level"],
-            data["comp_level"].upper()
-        )
+        level = levels.get(data["comp_level"], data["comp_level"].upper())
 
         embed = discord.Embed(
-            title=f"{event_name} {level} {num}",
-            description=description,
-            color=color
+            title=f"{event_name} {level} {num}", description=description, color=color
         )
 
         await interaction.response.send_message(embed=embed)
 
     except ValueError:
         await interaction.response.send_message(
-            f"Event `{event}` was not found.",
-            ephemeral=True
+            f"Event `{event}` was not found.", ephemeral=True
         )
 
     except requests.exceptions.Timeout:
         await interaction.response.send_message(
-            "The request to TBA timed out.",
-            ephemeral=True
+            "The request to TBA timed out.", ephemeral=True
         )
 
     except requests.exceptions.HTTPError as e:
         if response.status_code == 404:
             message = f"Match `{event}_{match}` was not found."
         else:
-            message = (
-                f"The TBA API returned an error "
-                f"(`{response.status_code}`)."
-            )
+            message = f"The TBA API returned an error (`{response.status_code}`)."
 
-        await interaction.response.send_message(
-            message,
-            ephemeral=True
-        )
+        await interaction.response.send_message(message, ephemeral=True)
 
     except requests.exceptions.RequestException:
         await interaction.response.send_message(
-            "Could not connect to TBA.",
-            ephemeral=True
+            "Could not connect to TBA.", ephemeral=True
         )
 
     except (KeyError, TypeError, ValueError):
         await interaction.response.send_message(
-            "The match data from TBA was invalid or incomplete.",
-            ephemeral=True
+            "The match data from TBA was invalid or incomplete.", ephemeral=True
         )
 
     except Exception as e:
         print(f"Unexpected error in /match: {e}")
 
         await interaction.response.send_message(
-            "Something went wrong while getting that match.",
-            ephemeral=True
+            "Something went wrong while getting that match.", ephemeral=True
         )
 
-@tree.command(name="team", description="get team details")
+
+@tree.command(name="getteam", description="get team details")
 @app_commands.describe(team="team number")
-async def team(interaction: discord.Interaction, team:int):
+async def getteam(interaction: discord.Interaction, team: int):
     try:
         response = requests.get(
             f"{TBA_URL}/team/frc{team}",
             timeout=10,
-            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")}
+            headers={"X-TBA-Auth-Key": os.getenv("TBA_KEY")},
         )
 
         response.raise_for_status()
@@ -471,18 +472,19 @@ async def team(interaction: discord.Interaction, team:int):
         embed = discord.Embed(
             title=f"Team {data['team_number']}: {data['nickname']}",
             description=data.get("name", ""),
-            color=discord.Color.blurple()
+            color=discord.Color.blurple(),
         )
 
         embed.add_field(name="Location", value=data.get("city", "Unknown"), inline=True)
-        embed.add_field(name="Website", value=data.get("website", "Unknown"), inline=True)
+        embed.add_field(
+            name="Website", value=data.get("website", "Unknown"), inline=True
+        )
 
         await interaction.response.send_message(embed=embed)
 
     except requests.exceptions.Timeout:
         await interaction.response.send_message(
-            "The request to TBA timed out",
-            ephemeral=True
+            "The request to TBA timed out", ephemeral=True
         )
 
     except requests.exceptions.HTTPError as e:
@@ -491,67 +493,54 @@ async def team(interaction: discord.Interaction, team:int):
         else:
             message = f"The TBA API returned an error (`{response.status_code}`)"
 
-        await interaction.response.send_message(
-            message,
-            ephemeral=True
-        )
+        await interaction.response.send_message(message, ephemeral=True)
 
     except requests.exceptions.RequestException:
         await interaction.response.send_message(
-            "Could not connect to TBA",
-            ephemeral=True
+            "Could not connect to TBA", ephemeral=True
         )
 
     except (KeyError, TypeError, ValueError):
         await interaction.response.send_message(
-            "The match data from TBA was invalid or incomplete",
-            ephemeral=True
+            "The match data from TBA was invalid or incomplete", ephemeral=True
         )
 
     except Exception as e:
         print(f"Unexpected error in /match: {e}")
 
         await interaction.response.send_message(
-            "Something went wrong while getting that match",
-            ephemeral=True
+            "Something went wrong while getting that match", ephemeral=True
         )
+
+
 @tree.command(name="larp", description="pester someone about larping")
 async def larp(interaction: discord.Interaction):
-    return await interaction.response.send_message(
-        "**Rules update: STOP LARPING**"
-    )
+    return await interaction.response.send_message("**Rules update: STOP LARPING**")
+
 
 @tree.command(name="code", description="?????")
 async def code(interaction: discord.Interaction):
     if not CODE:
         return await interaction.response.send_message(
-            "Code isn't configured",
-            ephemeral=True
+            "Code isn't configured", ephemeral=True
         )
 
     masked = get_masked_code(interaction.user.id)
     print(f"WHENER TENER HUNT ALERT: {interaction.user} got code: {masked}")
-    await interaction.response.send_message(
-        masked,
-        ephemeral=True
-    )
+    await interaction.response.send_message(masked, ephemeral=True)
+
 
 import csv
 
-@tree.command(
-    name="scrape",
-    description="scrape messages"
-)
+
+@tree.command(name="scrape", description="scrape messages")
 @app_commands.describe(
     start_id="ID of first message",
     end_id="ID of last message",
-    channel_id="ID of channel to scrape"
+    channel_id="ID of channel to scrape",
 )
 async def scrape(
-    interaction: discord.Interaction,
-    start_id: str,
-    end_id: str,
-    channel_id: str
+    interaction: discord.Interaction, start_id: str, end_id: str, channel_id: str
 ):
     await interaction.response.defer()
 
@@ -560,33 +549,23 @@ async def scrape(
         end_id = int(end_id)
         channel_id = int(channel_id)
     except ValueError:
-        return await interaction.followup.send(
-            "one or more IDs are invalid"
-        )
+        return await interaction.followup.send("one or more IDs are invalid")
 
     channel = interaction.client.get_channel(channel_id)
 
     if channel is None:
-        return await interaction.followup.send(
-            "channel not found."
-        )
+        return await interaction.followup.send("channel not found.")
 
     if not isinstance(channel, discord.TextChannel):
-        return await interaction.followup.send(
-            "not a text channel"
-        )
+        return await interaction.followup.send("not a text channel")
 
     try:
         start_message = await channel.fetch_message(start_id)
         end_message = await channel.fetch_message(end_id)
     except discord.NotFound:
-        return await interaction.followup.send(
-            "couldnt find one of the messages"
-        )
+        return await interaction.followup.send("couldnt find one of the messages")
     except discord.Forbidden:
-        return await interaction.followup.send(
-            "check channel permissions"
-        )
+        return await interaction.followup.send("check channel permissions")
 
     if start_message.id > end_message.id:
         start_message, end_message = end_message, start_message
@@ -597,60 +576,58 @@ async def scrape(
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
 
-        writer.writerow([
-            "timestamp",
-            "author_id",
-            "author",
-            "content",
-            "message_id"
-        ])
+        writer.writerow(["timestamp", "author_id", "author", "content", "message_id"])
 
-        writer.writerow([
-            start_message.created_at.isoformat(),
-            start_message.author.id,
-            str(start_message.author),
-            start_message.content,
-            start_message.id
-        ])
+        writer.writerow(
+            [
+                start_message.created_at.isoformat(),
+                start_message.author.id,
+                str(start_message.author),
+                start_message.content,
+                start_message.id,
+            ]
+        )
         count += 1
 
         async for message in channel.history(
-            limit=None,
-            after=start_message,
-            before=end_message,
-            oldest_first=True
+            limit=None, after=start_message, before=end_message, oldest_first=True
         ):
-            writer.writerow([
-                message.created_at.isoformat(),
-                message.author.id,
-                str(message.author),
-                message.content,
-                message.id
-            ])
+            writer.writerow(
+                [
+                    message.created_at.isoformat(),
+                    message.author.id,
+                    str(message.author),
+                    message.content,
+                    message.id,
+                ]
+            )
 
             count += 1
 
-        writer.writerow([
-            end_message.created_at.isoformat(),
-            end_message.author.id,
-            str(end_message.author),
-            end_message.content,
-            end_message.id
-        ])
+        writer.writerow(
+            [
+                end_message.created_at.isoformat(),
+                end_message.author.id,
+                str(end_message.author),
+                end_message.content,
+                end_message.id,
+            ]
+        )
         count += 1
 
     print(f"scraped {count} messages")
 
     await interaction.followup.send(
         f"scraped **{count} messages** from <#{channel_id}>.",
-        file=discord.File(filename)
+        file=discord.File(filename),
     )
+
 
 @client.event
 async def on_ready():
     await tree.sync()
     if not rotate_code.is_running():
-            rotate_code.start()
+        rotate_code.start()
     print(f"Logged in as {client.user}")
 
 
