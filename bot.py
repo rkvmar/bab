@@ -55,6 +55,11 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
+        name="/market",
+        value="show the stock market",
+        inline=False,
+    )
+    embed.add_field(
         name="/code",
         value="?????",
         inline=False,
@@ -511,6 +516,55 @@ async def getteam(interaction: discord.Interaction, team: int):
         await interaction.response.send_message(
             "Something went wrong while getting that match", ephemeral=True
         )
+
+
+BAG_API = "https://financeapi.rkmr.dev"
+BAG_SITE = "https://finance.rkmr.dev"
+
+
+@tree.command(name="market", description="show the stock market")
+async def market(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    try:
+        response = requests.get(f"{BAG_API}/api/events", timeout=10)
+        response.raise_for_status()
+        event_key = response.json()["event"]["key"]
+
+        response = requests.get(f"{BAG_API}/api/prices/{event_key}", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        return await interaction.followup.send(f"couldn't reach the market: {e}")
+
+    openings = {}
+    for point in data["points"]:
+        openings.setdefault(str(point["team"]), point["before"])
+
+    lines = [f"\u001b[2m{'Team':>6}  {'Price':>9}  {'Change':>8}\u001b[0m"]
+    for team, price in sorted(data["prices"].items(), key=lambda kv: int(kv[0])):
+        opening = openings.get(team, price)
+        change = price / opening - 1
+        color = "\u001b[32m" if change > 0 else "\u001b[31m" if change < 0 else ""
+        row = f"{team:>6}  {f'${price:.2f}':>9}  {change:>+7.1%}"
+        lines.append(f"{color}{row}\u001b[0m")
+
+    view = discord.ui.View()
+    view.add_item(
+        discord.ui.Button(
+            style=discord.ButtonStyle.link,
+            label="Open",
+            url=BAG_SITE,
+        )
+    )
+
+    embed = discord.Embed(
+        title=f"Stocks — {data['event']['name']}",
+        description="```ansi\n" + "\n".join(lines) + "\n```",
+        color=discord.Color.blurple(),
+    )
+
+    await interaction.followup.send(embed=embed, view=view)
 
 
 @tree.command(name="larp", description="pester someone about larping")
