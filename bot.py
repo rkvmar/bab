@@ -60,6 +60,11 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
+        name="/leaderboard",
+        value="show the stock leaderboard",
+        inline=False,
+    )
+    embed.add_field(
         name="/code",
         value="?????",
         inline=False,
@@ -565,6 +570,46 @@ async def market(interaction: discord.Interaction):
     )
 
     await interaction.followup.send(embed=embed, view=view)
+
+
+@tree.command(name="leaderboard", description="show the stock leaderboard")
+async def leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    try:
+        response = requests.get(f"{BAG_API}/api/events", timeout=10)
+        response.raise_for_status()
+        event_key = response.json()["event"]["key"]
+
+        prices = requests.get(f"{BAG_API}/api/prices/{event_key}", timeout=10).json()[
+            "prices"
+        ]
+        users = requests.get(f"{BAG_API}/api/leaderboard", timeout=10).json()["users"]
+    except Exception as e:
+        return await interaction.followup.send(f"couldn't reach the market: {e}")
+
+    def net_worth(user):
+        return user["cash_cents"] / 100 + sum(
+            shares * prices.get(team, 0) for team, shares in user["shares"].items()
+        )
+
+    users.sort(key=lambda u: (-net_worth(u), u.get("name") or u["id"]))
+
+    # A mention is 22 chars, so ~50 rows stays well inside the embed's 4096 limit.
+    lines = [
+        f"**{i}.** <@{u['id']}> — **${net_worth(u):,.2f}**"
+        for i, u in enumerate(users[:50], 1)
+    ]
+    if len(users) > 50:
+        lines.append(f"…and {len(users) - 50} more")
+
+    embed = discord.Embed(
+        title="Stocks Leaderboard",
+        description="\n".join(lines) or "no players yet",
+        color=discord.Color.gold(),
+    )
+
+    await interaction.followup.send(embed=embed)
 
 
 @tree.command(name="larp", description="pester someone about larping")
