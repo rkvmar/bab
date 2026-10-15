@@ -55,7 +55,7 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="/market info",
+        name="/market show",
         value="show the stock market",
         inline=False,
     )
@@ -550,7 +550,8 @@ BAG_SITE = "https://finance.rkmr.dev"
 market_group = app_commands.Group(name="market", description="stock market commands")
 tree.add_command(market_group)
 
-@market_group.command(name="info", description="show the stock market")
+
+@market_group.command(name="show", description="show the stock market")
 async def market_info(interaction: discord.Interaction):
     await interaction.response.defer()
 
