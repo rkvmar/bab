@@ -55,13 +55,33 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="/market",
+        name="/market info",
         value="show the stock market",
         inline=False,
     )
     embed.add_field(
-        name="/leaderboard",
+        name="/market leaderboard",
         value="show the stock leaderboard",
+        inline=False,
+    )
+    embed.add_field(
+        name="/market portfolio",
+        value="show your stock portfolio",
+        inline=False,
+    )
+    embed.add_field(
+        name="/market buy <team> <shares>",
+        value="buy shares of a team",
+        inline=False,
+    )
+    embed.add_field(
+        name="/market sell <team> <shares>",
+        value="sell shares of a team",
+        inline=False,
+    )
+    embed.add_field(
+        name="/profile <name> [image]",
+        value="set your leaderboard name and avatar",
         inline=False,
     )
     embed.add_field(
@@ -527,8 +547,11 @@ BAG_API = "https://financeapi.rkmr.dev"
 BAG_SITE = "https://finance.rkmr.dev"
 
 
-@tree.command(name="market", description="show the stock market")
-async def market(interaction: discord.Interaction):
+market_group = app_commands.Group(name="market", description="stock market commands")
+tree.add_command(market_group)
+
+@market_group.command(name="info", description="show the stock market")
+async def market_info(interaction: discord.Interaction):
     await interaction.response.defer()
 
     try:
@@ -572,7 +595,7 @@ async def market(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, view=view)
 
 
-@tree.command(name="leaderboard", description="show the stock leaderboard")
+@market_group.command(name="leaderboard", description="show the stock leaderboard")
 async def leaderboard(interaction: discord.Interaction):
     await interaction.response.defer()
 
@@ -595,7 +618,6 @@ async def leaderboard(interaction: discord.Interaction):
 
     users.sort(key=lambda u: (-net_worth(u), u.get("name") or u["id"]))
 
-    # A mention is 22 chars, so ~50 rows stays well inside the embed's 4096 limit.
     lines = [
         f"**{i}.** <@{u['id']}> — **${net_worth(u):,.2f}**"
         for i, u in enumerate(users[:50], 1)
@@ -610,6 +632,124 @@ async def leaderboard(interaction: discord.Interaction):
     )
 
     await interaction.followup.send(embed=embed)
+
+
+@market_group.command(name="portfolio", description="show your stock portfolio")
+async def portfolio(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    user_id = str(interaction.user.id)
+    try:
+        response = requests.get(f"{BAG_API}/api/portfolio/{user_id}", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        return await interaction.followup.send(f"couldn't reach the market: {e}")
+
+    cash = data["cash_cents"] / 100
+    shares = data["shares"]
+
+    try:
+        event_resp = requests.get(f"{BAG_API}/api/events", timeout=10)
+        event_resp.raise_for_status()
+        event_key = event_resp.json()["event"]["key"]
+
+        prices_resp = requests.get(f"{BAG_API}/api/prices/{event_key}", timeout=10)
+        prices_resp.raise_for_status()
+        prices = prices_resp.json()["prices"]
+    except Exception as e:
+        return await interaction.followup.send(f"couldn't fetch prices: {e}")
+
+    lines = [f"\u001b[2m{'Team':>6}  {'Shares':>7}  {'Value':>10}\u001b[0m"]
+    total_value = cash
+    for team, qty in sorted(shares.items(), key=lambda kv: int(kv[0])):
+        price = prices.get(team, 0)
+        value = qty * price
+        total_value += value
+        lines.append(f"{team:>6}  {qty:>7}  ${value:>9,.2f}")
+
+    lines.append(f"\u001b[2m{'Cash':>6}  {'':>7}  ${cash:>9,.2f}\u001b[0m")
+    lines.append(f"\u001b[1m{'Total':>6}  {'':>7}  ${total_value:>9,.2f}\u001b[0m")
+
+    embed = discord.Embed(
+        title=f"Portfolio — {interaction.user.display_name}",
+        description="```ansi\n" + "\n".join(lines) + "\n```",
+        color=discord.Color.blurple(),
+    )
+
+    await interaction.followup.send(embed=embed)
+
+
+@market_group.command(name="buy", description="buy shares of a team")
+@app_commands.describe(team="team number", shares="number of shares (1-100000)")
+async def buy(interaction: discord.Interaction, team: int, shares: int):
+    await interaction.response.defer()
+
+    if shares < 1 or shares > 100000:
+        return await interaction.followup.send(
+            "shares must be 1-100000", ephemeral=True
+        )
+
+    user_id = str(interaction.user.id)
+    try:
+        response = requests.post(
+            f"{BAG_API}/api/trade",
+            json={"user_id": user_id, "team": team, "side": "buy", "shares": shares},
+            timeout=10,
+        )
+        if response.status_code == 400:
+            return await interaction.followup.send(
+                f"trade failed: {response.json().get('detail', 'bad request')}",
+                ephemeral=True,
+            )
+        if response.status_code == 409:
+            return await interaction.followup.send(
+                "team has no price yet", ephemeral=True
+            )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        return await interaction.followup.send(f"trade failed: {e}", ephemeral=True)
+
+    cash = data["cash_cents"] / 100
+    await interaction.followup.send(
+        f"bought **{shares}** shares of **{team}** — cash: **${cash:,.2f}**"
+    )
+
+
+@market_group.command(name="sell", description="sell shares of a team")
+@app_commands.describe(team="team number", shares="number of shares")
+async def sell(interaction: discord.Interaction, team: int, shares: int):
+    await interaction.response.defer()
+
+    if shares < 1 or shares > 100000:
+        return await interaction.followup.send("invalid share number", ephemeral=True)
+
+    user_id = str(interaction.user.id)
+    try:
+        response = requests.post(
+            f"{BAG_API}/api/trade",
+            json={"user_id": user_id, "team": team, "side": "sell", "shares": shares},
+            timeout=10,
+        )
+        if response.status_code == 400:
+            return await interaction.followup.send(
+                f"trade failed: {response.json().get('detail', 'bad request')}",
+                ephemeral=True,
+            )
+        if response.status_code == 409:
+            return await interaction.followup.send(
+                "team has no price yet", ephemeral=True
+            )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        return await interaction.followup.send(f"trade failed: {e}", ephemeral=True)
+
+    cash = data["cash_cents"] / 100
+    await interaction.followup.send(
+        f"sold **{shares}** shares of **{team}** — cash: **${cash:,.2f}**"
+    )
 
 
 @tree.command(name="larp", description="pester someone about larping")
