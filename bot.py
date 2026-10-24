@@ -704,9 +704,8 @@ async def buy(interaction: discord.Interaction, team: int, shares: int):
                 ephemeral=True,
             )
         if response.status_code == 409:
-            return await interaction.followup.send(
-                "team has no price yet", ephemeral=True
-            )
+            detail = response.json().get("detail", "team has no price yet")
+            return await interaction.followup.send(detail, ephemeral=True)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
@@ -739,9 +738,8 @@ async def sell(interaction: discord.Interaction, team: int, shares: int):
                 ephemeral=True,
             )
         if response.status_code == 409:
-            return await interaction.followup.send(
-                "team has no price yet", ephemeral=True
-            )
+            detail = response.json().get("detail", "team has no price yet")
+            return await interaction.followup.send(detail, ephemeral=True)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
