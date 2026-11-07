@@ -450,7 +450,7 @@ async def event_add(interaction: discord.Interaction, name: str):
         )
     except discord.Forbidden:
         return await interaction.response.send_message(
-            "i need the manage roles permission to create event roles",
+            "need the manage roles permission to create event roles",
             ephemeral=True,
         )
 
@@ -534,7 +534,7 @@ async def event_signup(interaction: discord.Interaction, name: str):
                     "DELETE FROM event_members WHERE event_id = ? AND user_id = ?",
                     (event_id, interaction.user.id),
                 )
-            message = f"removed {role.mention} — left **{event_name}**"
+            message = f"left {role.mention}"
         else:
             await interaction.user.add_roles(role)
             with db:
@@ -542,7 +542,7 @@ async def event_signup(interaction: discord.Interaction, name: str):
                     "INSERT OR IGNORE INTO event_members (event_id, user_id) VALUES (?, ?)",
                     (event_id, interaction.user.id),
                 )
-            message = f"signed up for **{event_name}**"
+            message = f"signed up for {role.mention}"
     except discord.Forbidden:
         return await interaction.response.send_message(
             f"can't manage {role.mention}", ephemeral=True
