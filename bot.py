@@ -10,6 +10,7 @@ import json
 import requests
 import time
 import csv
+import sqlite3
 
 load_dotenv()
 intents = discord.Intents.default()
@@ -37,6 +38,26 @@ async def help(interaction: discord.Interaction):
     embed.add_field(
         name="/teams",
         value="list all team roles you can get",
+        inline=False,
+    )
+    embed.add_field(
+        name="/event signup <name>",
+        value="join or leave an event and get its role",
+        inline=False,
+    )
+    embed.add_field(
+        name="/event list <name>",
+        value="list everyone signed up for an event",
+        inline=False,
+    )
+    embed.add_field(
+        name="/event add <name>",
+        value="create an event and its role",
+        inline=False,
+    )
+    embed.add_field(
+        name="/event remove <name>",
+        value="delete an event and its role",
         inline=False,
     )
     embed.add_field(
@@ -77,11 +98,6 @@ async def help(interaction: discord.Interaction):
     embed.add_field(
         name="/market sell <team> <shares>",
         value="sell shares of a team",
-        inline=False,
-    )
-    embed.add_field(
-        name="/profile <name> [image]",
-        value="set your leaderboard name and avatar",
         inline=False,
     )
     embed.add_field(
@@ -364,6 +380,203 @@ def resolve_event(event_input: str):
         return matches[0]["key"], matches[0]["name"]
 
     raise ValueError("Event was not found")
+
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "events.db")
+db = sqlite3.connect(DB_PATH)
+db.execute("PRAGMA foreign_keys = ON")
+db.executescript(
+    """
+    CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        role_id INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS event_members (
+        event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL,
+        PRIMARY KEY (event_id, user_id)
+    );
+    """
+)
+db.commit()
+
+event_group = app_commands.Group(name="event", description="event commands")
+tree.add_command(event_group)
+
+
+def get_db_event(name: str):
+    return db.execute(
+        "SELECT id, name, role_id FROM events WHERE name = ?", (name.strip(),)
+    ).fetchone()
+
+
+def is_admin(interaction: discord.Interaction):
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    return bool(permissions and permissions.administrator)
+
+
+async def db_event_autocomplete(interaction: discord.Interaction, current: str):
+    rows = db.execute(
+        "SELECT name FROM events WHERE name LIKE ? ORDER BY name LIMIT 25",
+        (f"%{current}%",),
+    ).fetchall()
+    return [app_commands.Choice(name=row[0], value=row[0]) for row in rows]
+
+
+@event_group.command(name="add", description="create an event")
+@app_commands.describe(name="event name")
+async def event_add(interaction: discord.Interaction, name: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message("admin only", ephemeral=True)
+
+    name = name.strip()
+
+    if not name:
+        return await interaction.response.send_message(
+            "event name can't be empty", ephemeral=True
+        )
+    if get_db_event(name):
+        return await interaction.response.send_message(
+            f"event **{name}** already exists", ephemeral=True
+        )
+
+    try:
+        role = await interaction.guild.create_role(
+            name=name,
+            color=discord.Color.from_hsv(random.random(), 0.9, 1.0),
+            mentionable=True,
+        )
+    except discord.Forbidden:
+        return await interaction.response.send_message(
+            "i need the manage roles permission to create event roles",
+            ephemeral=True,
+        )
+
+    try:
+        with db:
+            db.execute(
+                "INSERT INTO events (name, role_id) VALUES (?, ?)", (name, role.id)
+            )
+    except sqlite3.IntegrityError:
+        await role.delete()
+        return await interaction.response.send_message(
+            f"event **{name}** already exists", ephemeral=True
+        )
+
+    await interaction.response.send_message(
+        f"created event **{name}** with role {role.mention}"
+    )
+
+
+@event_group.command(name="remove", description="delete an event")
+@app_commands.describe(name="event name")
+@app_commands.autocomplete(name=db_event_autocomplete)
+async def event_remove(interaction: discord.Interaction, name: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message("admin only", ephemeral=True)
+
+    event = get_db_event(name)
+
+    if not event:
+        return await interaction.response.send_message(
+            f"event `{name}` not found", ephemeral=True
+        )
+
+    role = interaction.guild.get_role(event[2])
+
+    if role:
+        try:
+            await role.delete()
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                f"i can't delete {role.mention}", ephemeral=True
+            )
+
+    with db:
+        db.execute("DELETE FROM events WHERE id = ?", (event[0],))
+
+    await interaction.response.send_message(
+        f"removed event **{event[1]}** and its role"
+    )
+
+
+@event_group.command(name="signup", description="join or leave an event")
+@app_commands.describe(name="event name")
+@app_commands.autocomplete(name=db_event_autocomplete)
+async def event_signup(interaction: discord.Interaction, name: str):
+    event = get_db_event(name)
+
+    if not event:
+        return await interaction.response.send_message(
+            f"event `{name}` not found", ephemeral=True
+        )
+
+    event_id, event_name, role_id = event
+    role = interaction.guild.get_role(role_id)
+
+    if role is None:
+        return await interaction.response.send_message(
+            f"the role for **{event_name}** no longer exists", ephemeral=True
+        )
+
+    joined = db.execute(
+        "SELECT 1 FROM event_members WHERE event_id = ? AND user_id = ?",
+        (event_id, interaction.user.id),
+    ).fetchone()
+
+    try:
+        if joined:
+            await interaction.user.remove_roles(role)
+            with db:
+                db.execute(
+                    "DELETE FROM event_members WHERE event_id = ? AND user_id = ?",
+                    (event_id, interaction.user.id),
+                )
+            message = f"removed {role.mention} — left **{event_name}**"
+        else:
+            await interaction.user.add_roles(role)
+            with db:
+                db.execute(
+                    "INSERT OR IGNORE INTO event_members (event_id, user_id) VALUES (?, ?)",
+                    (event_id, interaction.user.id),
+                )
+            message = f"signed up for **{event_name}**"
+    except discord.Forbidden:
+        return await interaction.response.send_message(
+            f"can't manage {role.mention}", ephemeral=True
+        )
+
+    await interaction.response.send_message(message)
+
+
+@event_group.command(name="list", description="list everyone signed up for an event")
+@app_commands.describe(name="event name")
+@app_commands.autocomplete(name=db_event_autocomplete)
+async def event_list(interaction: discord.Interaction, name: str):
+    event = get_db_event(name)
+
+    if not event:
+        return await interaction.response.send_message(
+            f"event `{name}` not found", ephemeral=True
+        )
+
+    event_id, event_name, role_id = event
+    members = db.execute(
+        "SELECT user_id FROM event_members WHERE event_id = ? ORDER BY user_id",
+        (event_id,),
+    ).fetchall()
+    role = interaction.guild.get_role(role_id)
+
+    embed = discord.Embed(
+        title=f"{event_name} signups",
+        description="\n".join(f"<@{row[0]}>" for row in members)
+        or "no one signed up yet",
+        color=discord.Color.blurple(),
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 
 @tree.command(name="match", description="get match details")
