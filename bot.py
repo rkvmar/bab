@@ -52,8 +52,8 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="/event add <name> [role]",
-        value="create an event, optionally using an existing role",
+        name="/event add <name> [role] [role name]",
+        value="create an event",
         inline=False,
     )
     embed.add_field(
@@ -436,9 +436,16 @@ async def db_event_autocomplete(interaction: discord.Interaction, current: str):
 
 
 @event_group.command(name="add", description="create an event")
-@app_commands.describe(name="event name", role="use an existing role instead")
+@app_commands.describe(
+    name="event name",
+    role="use an existing role instead",
+    role_name="name for the new role (defaults to event name)",
+)
 async def event_add(
-    interaction: discord.Interaction, name: str, role: discord.Role | None = None
+    interaction: discord.Interaction,
+    name: str,
+    role: discord.Role | None = None,
+    role_name: str | None = None,
 ):
     if not is_admin(interaction):
         return await interaction.response.send_message("admin only", ephemeral=True)
@@ -455,11 +462,17 @@ async def event_add(
         )
 
     owned = role is None
+    new_role_name = (role_name or "").strip() or name
+
+    if len(new_role_name) > 100:
+        return await interaction.response.send_message(
+            "role names can't be longer than 100 characters", ephemeral=True
+        )
 
     if owned:
         try:
             role = await interaction.guild.create_role(
-                name=name,
+                name=new_role_name,
                 color=discord.Color.from_hsv(random.random(), 0.9, 1.0),
                 mentionable=True,
             )
@@ -529,6 +542,9 @@ async def event_edit(
         )
 
     role = interaction.guild.get_role(event[2]) if event[3] else None
+
+    if role and role.name != event[1]:
+        role = None
 
     try:
         if role:
