@@ -14,6 +14,7 @@ import sqlite3
 
 load_dotenv()
 intents = discord.Intents.default()
+intents.members = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 TBA_URL = "https://www.thebluealliance.com/api/v3"
@@ -51,8 +52,8 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="/event add <name>",
-        value="create an event and its role",
+        name="/event add <name> [role]",
+        value="create an event, optionally using an existing role",
         inline=False,
     )
     embed.add_field(
@@ -62,7 +63,7 @@ async def help(interaction: discord.Interaction):
     )
     embed.add_field(
         name="/event remove <name>",
-        value="delete an event and its role",
+        value="delete an event and its role if bot-created",
         inline=False,
     )
     embed.add_field(
@@ -387,7 +388,8 @@ def resolve_event(event_input: str):
     raise ValueError("Event was not found")
 
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "events.db")
+DB_PATH = os.path.expanduser(os.getenv("EVENT_DB_PATH", "~/.bab/events.db"))
+os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
 db = sqlite3.connect(DB_PATH)
 db.execute("PRAGMA foreign_keys = ON")
 db.executescript(
@@ -395,7 +397,8 @@ db.executescript(
     CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        role_id INTEGER NOT NULL
+        role_id INTEGER NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS event_members (
@@ -405,6 +408,8 @@ db.executescript(
     );
     """
 )
+if "owned" not in {row[1] for row in db.execute("PRAGMA table_info(events)")}:
+    db.execute("ALTER TABLE events ADD COLUMN owned INTEGER NOT NULL DEFAULT 1")
 db.commit()
 
 event_group = app_commands.Group(name="event", description="event commands")
@@ -413,7 +418,7 @@ tree.add_command(event_group)
 
 def get_db_event(name: str):
     return db.execute(
-        "SELECT id, name, role_id FROM events WHERE name = ?", (name.strip(),)
+        "SELECT id, name, role_id, owned FROM events WHERE name = ?", (name.strip(),)
     ).fetchone()
 
 
@@ -431,8 +436,10 @@ async def db_event_autocomplete(interaction: discord.Interaction, current: str):
 
 
 @event_group.command(name="add", description="create an event")
-@app_commands.describe(name="event name")
-async def event_add(interaction: discord.Interaction, name: str):
+@app_commands.describe(name="event name", role="use an existing role instead")
+async def event_add(
+    interaction: discord.Interaction, name: str, role: discord.Role | None = None
+):
     if not is_admin(interaction):
         return await interaction.response.send_message("admin only", ephemeral=True)
 
@@ -447,31 +454,47 @@ async def event_add(interaction: discord.Interaction, name: str):
             f"event **{name}** already exists", ephemeral=True
         )
 
-    try:
-        role = await interaction.guild.create_role(
-            name=name,
-            color=discord.Color.from_hsv(random.random(), 0.9, 1.0),
-            mentionable=True,
-        )
-    except discord.Forbidden:
+    owned = role is None
+
+    if owned:
+        try:
+            role = await interaction.guild.create_role(
+                name=name,
+                color=discord.Color.from_hsv(random.random(), 0.9, 1.0),
+                mentionable=True,
+            )
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                "need the manage roles permission to create event roles",
+                ephemeral=True,
+            )
+    elif role.is_default() or role.managed or role >= interaction.guild.me.top_role:
         return await interaction.response.send_message(
-            "need the manage roles permission to create event roles",
-            ephemeral=True,
+            f"i can't use `{role.name}` for an event", ephemeral=True
         )
+
+    members = [] if owned else [member.id for member in role.members]
 
     try:
         with db:
-            db.execute(
-                "INSERT INTO events (name, role_id) VALUES (?, ?)", (name, role.id)
+            cur = db.execute(
+                "INSERT INTO events (name, role_id, owned) VALUES (?, ?, ?)",
+                (name, role.id, int(owned)),
+            )
+            db.executemany(
+                "INSERT OR IGNORE INTO event_members (event_id, user_id) VALUES (?, ?)",
+                [(cur.lastrowid, user_id) for user_id in members],
             )
     except sqlite3.IntegrityError:
-        await role.delete()
+        if owned:
+            await role.delete()
         return await interaction.response.send_message(
             f"event **{name}** already exists", ephemeral=True
         )
 
+    suffix = f" and signed up {len(members)} existing members" if members else ""
     await interaction.response.send_message(
-        f"created event **{name}** with role {role.mention}"
+        f"created event **{name}** with role {role.mention}{suffix}"
     )
 
 
@@ -505,7 +528,7 @@ async def event_edit(
             f"event **{new_name}** already exists", ephemeral=True
         )
 
-    role = interaction.guild.get_role(event[2])
+    role = interaction.guild.get_role(event[2]) if event[3] else None
 
     try:
         if role:
@@ -544,7 +567,7 @@ async def event_remove(interaction: discord.Interaction, name: str):
             f"event `{name}` not found", ephemeral=True
         )
 
-    role = interaction.guild.get_role(event[2])
+    role = interaction.guild.get_role(event[2]) if event[3] else None
 
     if role:
         try:
@@ -557,9 +580,8 @@ async def event_remove(interaction: discord.Interaction, name: str):
     with db:
         db.execute("DELETE FROM events WHERE id = ?", (event[0],))
 
-    await interaction.response.send_message(
-        f"removed event **{event[1]}** and its role"
-    )
+    suffix = " and its role" if role else ""
+    await interaction.response.send_message(f"removed event **{event[1]}**{suffix}")
 
 
 @event_group.command(name="signup", description="join or leave an event")
@@ -573,7 +595,7 @@ async def event_signup(interaction: discord.Interaction, name: str):
             f"event `{name}` not found", ephemeral=True
         )
 
-    event_id, event_name, role_id = event
+    event_id, event_name, role_id, _ = event
     role = interaction.guild.get_role(role_id)
 
     if role is None:
@@ -622,7 +644,7 @@ async def event_list(interaction: discord.Interaction, name: str):
             f"event `{name}` not found", ephemeral=True
         )
 
-    event_id, event_name, role_id = event
+    event_id, event_name, role_id, _ = event
     members = db.execute(
         "SELECT user_id FROM event_members WHERE event_id = ? ORDER BY user_id",
         (event_id,),
