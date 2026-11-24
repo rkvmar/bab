@@ -56,6 +56,11 @@ async def help(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
+        name="/event edit <name> [new name]",
+        value="rename an event and its role",
+        inline=False,
+    )
+    embed.add_field(
         name="/event remove <name>",
         value="delete an event and its role",
         inline=False,
@@ -467,6 +472,61 @@ async def event_add(interaction: discord.Interaction, name: str):
 
     await interaction.response.send_message(
         f"created event **{name}** with role {role.mention}"
+    )
+
+
+@event_group.command(name="edit", description="rename an event")
+@app_commands.describe(name="event name", new_name="new event name")
+@app_commands.autocomplete(name=db_event_autocomplete)
+async def event_edit(
+    interaction: discord.Interaction, name: str, new_name: str | None = None
+):
+    if not is_admin(interaction):
+        return await interaction.response.send_message("admin only", ephemeral=True)
+
+    event = get_db_event(name)
+
+    if not event:
+        return await interaction.response.send_message(
+            f"event `{name}` not found", ephemeral=True
+        )
+    if not new_name or not new_name.strip():
+        return await interaction.response.send_message(
+            "give a new name", ephemeral=True
+        )
+
+    new_name = new_name.strip()
+    duplicate = db.execute(
+        "SELECT 1 FROM events WHERE name = ? AND id != ?", (new_name, event[0])
+    ).fetchone()
+
+    if duplicate:
+        return await interaction.response.send_message(
+            f"event **{new_name}** already exists", ephemeral=True
+        )
+
+    role = interaction.guild.get_role(event[2])
+
+    try:
+        if role:
+            await role.edit(name=new_name)
+    except discord.Forbidden:
+        return await interaction.response.send_message(
+            f"i can't rename {role.mention}", ephemeral=True
+        )
+
+    try:
+        with db:
+            db.execute("UPDATE events SET name = ? WHERE id = ?", (new_name, event[0]))
+    except sqlite3.IntegrityError:
+        if role:
+            await role.edit(name=event[1])
+        return await interaction.response.send_message(
+            f"event **{new_name}** already exists", ephemeral=True
+        )
+
+    await interaction.response.send_message(
+        f"renamed event **{event[1]}** to **{new_name}**"
     )
 
 
